@@ -1,0 +1,10 @@
+{
+	"server":"52.197.156.235",
+	"server_port":17989,
+	"local_address": "0.0.0.0",
+ 	"local_port":12345,
+ 	"password":"fU2/<js8u98wdqn,.sd{28^2",
+ 	"timeout":300,
+ 	"method":"aes-256-cfb",
+ 	"fast_open": false
+}
