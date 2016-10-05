@@ -5,6 +5,9 @@
 # This is free software, licensed under the GNU General Public License v3.
 # See /LICENSE for more information.
 #
+# Modifications for the AsusWRT-Merlin firmware by Mike Fischer
+# Original at https://github.com/shadowsocks/luci-app-shadowsocks
+#
 
 usage() {
 	cat <<-EOF
@@ -42,14 +45,18 @@ loger() {
 
 flush_rules() {
 	iptables-save -c | grep -v "SS_SPEC" | iptables-restore -c
-	if command -v ip >/dev/null 2>&1; then
+	if which ip >/dev/null 2>&1; then
+		set +e
 		ip rule del fwmark 1 lookup 100 2>/dev/null
 		ip route del local default dev lo table 100 2>/dev/null
+		set -e
 	fi
-	for setname in $(ipset -n list | grep "ss_spec"); do
-		ipset destroy $setname 2>/dev/null
+	for setname in $(ipset --list | grep "ss_spec" | sed "s/Name: \(.*\)/\1/"); do
+		ipset --destroy $setname
 	done
-	# Don't know what uci is, but AsusWRT-Merlin doesn't have it...
+	# UCI is OpenWRT-specfic, so it can't be used here.  Anyway, this setting appears
+	# to be to allow the shadowsocks binary through the firewall, which isn't relevant
+	# to AsusWRT-Merlin anyway.
 	#FWI=$(uci get firewall.shadowsocks.path 2>/dev/null)
 	#[ -n "$FWI" ] && echo '# firewall include file' >$FWI
 	return 0
@@ -58,19 +65,10 @@ flush_rules() {
 ipset_init() {
 	# man page for old version of ipset:
 	# https://people.netfilter.org/kadlec/ipset/ipset.man.html
-	set +e
-	ipset -X ss_spec_src_ac 2> /dev/null
-	ipset -X ss_spec_src_bp 2> /dev/null
-	ipset -X ss_spec_src_fw 2> /dev/null
-	ipset -X ss_spec_dst_sp 2> /dev/null
-	ipset -X ss_spec_dst_sp_mask 2> /dev/null
-	ipset -X ss_spec_dst_bp 2> /dev/null
-	ipset -X ss_spec_dst_fw 2> /dev/null
-	set -e
 
 	# Note that order matters here. All IPs/netmasks inside a set must be added to the set
-	# immediately after it's created and before any other sets are created. Why?
-	tee ipset-new <<-EOF || return 1
+	# immediately after it's created and before any other sets are created.
+	ipset --restore <<-EOF || return 1
 		-N ss_spec_src_ac nethash --hashsize 64
 		-N ss_spec_src_bp nethash --hashsize 64
 		-N ss_spec_src_fw nethash --hashsize 64
@@ -78,23 +76,23 @@ ipset_init() {
 		$(gen_special_purpose_ip | sed -e "s/^/-A ss_spec_dst_sp /")
 		-N ss_spec_dst_sp_mask nethash --hashsize 64
 		$(gen_special_purpose_mask | sed -e "s/^/-A ss_spec_dst_sp_mask /")
-		-N ss_spec_dst_bp nethash --hashsize 64
+		-N ss_spec_dst_bp nethash --hashsize 10000
 		$(sed -e "s/^/-A ss_spec_dst_bp /" ${IGNORED:=/dev/null} 2>/dev/null)
 		$(for ip in $WAN_BP_IP; do echo "-A ss_spec_dst_bp $ip"; done)
 		-N ss_spec_dst_fw nethash --hashsize 64
 		$(for ip in $WAN_FW_IP; do echo "-A ss_spec_dst_fw $ip"; done)
 		COMMIT
 EOF
-	cat ipset-new | ipset --restore
 
-	# Because of the ordering issue, it's difficult to support this guy.  Wait until it's needed.
+	# Because of the ordering issue, more work is required to support this setting.
+	# Wait until it's needed.
 	#	$(gen_lan_host_ipset_entry)
-
 
 	return 0
 }
 
 # Different routers have different iptables syntax
+# From https://github.com/RMerl/asuswrt-merlin/wiki/Using-ipset
 case $(uname -m) in
   armv7l)
     MATCH_SET='--match-set'
@@ -121,7 +119,7 @@ ipt_nat() {
 
 ipt_mangle() {
 	[ -n "$TPROXY" ] || return 0
-	if !(lsmod | grep -q TPROXY && command -v ip >/dev/null); then
+	if !(lsmod | grep -q TPROXY && which ip >/dev/null); then
 		loger 4 "TPROXY or ip not found."
 		return 0
 	fi
@@ -231,7 +229,6 @@ TEMP=$(getopt -o :s:l:S:L:i:b:w:I:d:a:e:oOuUfh -- "$@")
 eval set -- "$TEMP"
 
 while true; do
-	echo "Args: $1 = $2"
 	case "$1" in
 		-s)
 			server=$(for ip in $2; do echo $ip; done)
@@ -270,7 +267,7 @@ while true; do
 			shift 2
 			;;
 		-a)
-			echo "Sorry, this option isn't supported.  Ask Mike to fix the script."
+			echo "Sorry, this option isn't currently supported."
 			exit 128
 			LAN_HOSTS=$2
 			shift 2
