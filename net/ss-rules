@@ -161,6 +161,7 @@ gen_lan_host_ipset_entry() {
 gen_special_purpose_ip() {
 	cat <<-EOF | grep -E "^([0-9]{1,3}\.){3}[0-9]{1,3}"
 		255.255.255.255
+		8.8.8.8
 		$server
 		$SERVER
 EOF

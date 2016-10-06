@@ -35,10 +35,21 @@ First, find the smallest USB thumbdrive you own (a 1GB micro SD card in a tiny U
 So now there's a partition on the drive, but it's empty. Like, all zeros empty. We need to fix that. It's already mounted (in use), so to make big changes to it you have to unmount it first before creating the filesystem and mounting it:
 
 ```bash
-umount /dev/sda1
 mkfs.ext3 /dev/sda1
 mkdir /mnt/usb
 mount /dev/sda1 /mnt/usb
+```
+
+Next, make sure it auto-mounts on startup:
+
+```bash
+echo "# device mountpoint fstype options dump fsck" >> /jffs/configs/fstab
+echo "/dev/sda1 /mnt/usb ext3 defaults 0 1" >> /jffs/configs/fstab
+tee /jffs/scripts/init-start <<-EOF
+#!/bin/sh
+mkdir -p /mnt/usb
+EOF
+chmod +x /jffs/scripts/init-start
 ```
 
 And finally, as detailed on [this page](https://github.com/RMerl/asuswrt-merlin/wiki/Entware), no need to be a hero, just use the setup script, which is already in the ROM and part of the $PATH:
@@ -48,6 +59,8 @@ entware-setup.sh
 ```
 
 And select partition `1`, of course. Congratulations, you now have a persistent /opt folder with entware installed.
+
+Reboot the router to ensure the startup commands to mount the volume work properly.
 
 #### Into the shadows
 
@@ -83,7 +96,12 @@ Aha! Since packets from the LAN arrive on the gateway's IP (usually 192.168.0.1)
 
 #### ss-rules
 
-There's this cool thing called ss-rules which was designed for OpenWRT but which totally doesn't run at all on OpenWRT. It's because it uses getopts instead of getopt, and the ipset version is different too.
+There's this cool thing called ss-rules which was designed for OpenWRT but which totally doesn't run at all on AsusWRT-Merlin. Why?
+
+-	It uses getopts instead of getopt (this sounds like a joke, but it's not)
+-	It uses a new version of ipset, which AsusWRT-Merlin doesn't have
+-	It relies on TPROXY for UDP forwarding, which Merlin doesn't have
+-	There's this thing called UCI, which is an OpenWRT-only thing
 
 It's here:
 
@@ -91,26 +109,41 @@ https://github.com//shadowsocks/luci-app-shadowsocks
 
 But it has to be modified heavily. But that's done.
 
+shadowsocks startup can be done in the \``/jffs/scripts/nat-start` script, which according to [this page](https://github.com/RMerl/asuswrt-merlin/wiki/Iptables-tips) is where nat rules should be added to iptables.
+
+To set all this up, just
+
+```bash
+opkg install git git-http getopt
+mkdir -p /opt/src/github.com/the80scalled
+cd /opt/src/github.com/the80scalled
+git clone https://github.com/the80scalled/misc.git
+tee /jffs/scripts/nat-start <<-EOF
+#!/bin/sh
+/opt/src/github.com/the80scalled/misc/net/ss start
+```
+
 #### DNS
 
-DNS is next on the agenda. Apparently ChinaDNS isn't so well-maintained anymore, so there's this felixonmars guy on github.com who seems to be doing a good job.
+DNS is next on the agenda.
 
-Install git:
+The great firewall appears to intercept and tamper with unencrypted DNS requests to some servers, while other servers are blocked entirely. Even if we had [a list of all the Chinese domains](https://github.com/felixonmars/dnsmasq-china-list), it's clear that normal DNS cannot be used from within China.
+
+Instead, there are a few options:
+
+-	Proxy DNS traffic through shadowsocks. This would be ideal, but unfortunately this requires the TPROXY module, which AsusWRT-Merlin does not have.
+-	Use [dnscrypt](https://github.com/jedisct1/dnscrypt-proxy). This works for a while, but is also unreliable.
+-	Use dnscrypt with the `--tcp-only` option. This works, but is extremely slow -- so slow, in fact, that Chrome times out before the DNS request returns.
+-	Use ChinaDNS. This seems ideal, except the project is old.
+-	Use redsocks(2) to tunnel DNS traffic through shadowsocks.
+
+ChinaDNS looks like the most promising option.
+
+Optionally, `opkg install bind-dig` to get the awesome `dig` tool for DNS queries like this one:
 
 ```
-opkg install git
-opkg install git-http
+dig @127.0.0.1 www.nytimes.com -p5354
 ```
-
-And clone the repository:
-
-```
-mkdir -p /mnt/usb/src/github.com/felixonmars
-cd /mnt/usb/src/github.com/felixonmars
-git clone https://github.com/felixonmars/dnsmasq-china-list.git
-```
-
-Meanwhile, get DNSCrypt set up from [here](https://github.com/RMerl/asuswrt-merlin/wiki/Secure-DNS-queries-using-DNSCrypt).
 
 To test, simply look up some popular domains:
 
@@ -118,6 +151,23 @@ To test, simply look up some popular domains:
 |-----------------|--------------------|----------------|
 | www.nytimes.com | 31.13.90.3         | 173.252.120.68 |
 | www.twitter.com | 37.61.54.158       | 159.106.121.75 |
+
+#### chnroute.txt
+
+```
+curl 'http://ftp.apnic.net/apnic/stats/apnic/delegated-apnic-latest' | grep ipv4 | grep CN | awk -F\| '{ printf("%s/%d\n", $4, 32-log($5)/log(2)) }' > chnroute.txt
+```
+
+#### Selective routing
+
+There are two ways to achieve this:
+
+-	Create virtual SSIDs, where each one is VPN'ed to a different country
+-	Magically route different IP ranges to different VPN servers
+
+#### Other things to do
+
+-	Load-balance across multiple VPN servers
 
 ### Appendix
 
