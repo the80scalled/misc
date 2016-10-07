@@ -118,9 +118,12 @@ opkg install git git-http getopt
 mkdir -p /opt/src/github.com/the80scalled
 cd /opt/src/github.com/the80scalled
 git clone https://github.com/the80scalled/misc.git
+
 tee /jffs/scripts/nat-start <<-EOF
 #!/bin/sh
 /opt/src/github.com/the80scalled/misc/net/ss start
+EOF
+chmod +x /jffs/scripts/nat-start
 ```
 
 #### DNS
@@ -139,11 +142,31 @@ Instead, there are a few options:
 
 ChinaDNS looks like the most promising option.
 
-Optionally, `opkg install bind-dig` to get the awesome `dig` tool for DNS queries like this one:
+```bash
+opkg install chinadns bind-dig
+
+tee /jffs/configs/dnsmasq.conf.add <<-EOF
+# Pay no attention to /etc/resolv.conf
+no-resolv
+server=127.0.0.1#5354
+EOF
+service restart_dnsmasq
+```
+
+Note that we've installed the awesome `dig` tool, which shows the full results of DNS queries like
 
 ```
 dig @127.0.0.1 www.nytimes.com -p5354
 ```
+
+Anyway, the chinadns startup configuration isn't quite correct. Do this:
+
+```
+sed -i -r '/^ARGS/cARGS="-l /opt/etc/chinadns_iplist.txt -c /opt/src/github.com/the80scalled/misc/net/cnroute.txt -p 5354 -m"' S56chinadns
+/opt/etc/init.d/S56chinadns start
+```
+
+And it should start.
 
 To test, simply look up some popular domains:
 
@@ -152,10 +175,10 @@ To test, simply look up some popular domains:
 | www.nytimes.com | 31.13.90.3         | 173.252.120.68 |
 | www.twitter.com | 37.61.54.158       | 159.106.121.75 |
 
-#### chnroute.txt
+#### cnroute.txt
 
 ```
-curl 'http://ftp.apnic.net/apnic/stats/apnic/delegated-apnic-latest' | grep ipv4 | grep CN | awk -F\| '{ printf("%s/%d\n", $4, 32-log($5)/log(2)) }' > chnroute.txt
+curl 'http://ftp.apnic.net/apnic/stats/apnic/delegated-apnic-latest' | grep ipv4 | grep CN | awk -F\| '{ printf("%s/%d\n", $4, 32-log($5)/log(2)) }' > cnroute.txt
 ```
 
 #### Selective routing
