@@ -1,7 +1,9 @@
 #!/bin/sh
 # Quick script to copy stuff over to the router
 
-scp ss rt:/mnt/usb/bin
-scp ss-redir.json rt:/mnt/usb/bin
-scp ss-rules rt:/mnt/usb/bin
-scp chnroutes.txt rt:/mnt/usb/bin
+dest=/opt/src/github.com/the80scalled/misc/net
+
+scp ss rt:$dest
+scp ss-redir.json rt:$dest
+scp ss-rules rt:$dest
+scp chnroute.txt rt:$dest

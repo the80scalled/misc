@@ -1,11 +1,11 @@
 #!/bin/sh
 # Starts shadowsocks
 
-MYDIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+MYDIR=`dirname $0`
 
 ss_local_port=12345
-ss_server_ip1=52.197.156.235
-#ss_server_ip2=52.193.77.21
+ss_server_ip=52.197.156.235
+ss_server_port=17989
 
 verb=$1
 
@@ -22,15 +22,20 @@ if [[ "$verb" == "stop" ]]; then
 fi
 
 if [[ "$verb" == "start" ]]; then
-	if [[ -f $MYDIR/cnroute.txt ]]; then
-		echo "Using cnroute.txt to bypass VPN for China local addresses"
-		CNROUTE="-i $MYDIR/cnroute.txt"
+	if [[ -f $MYDIR/chnroute.txt ]]; then
+		echo "Using chnroute.txt to bypass VPN for China local addresses"
+		CHNROUTE="-i $MYDIR/chnroute.txt"
 	fi
 
-	ss-redir -v -c $MYDIR/ss-redir.json -f /var/run/shadowsocks.pid &
-	$MYDIR/ss-rules -s $ss_server_ip1 -l $ss_local_port $CNROUTE
+	ss-redir -v \
+		-c $MYDIR/ss-redir.json \
+		-s $ss_server_ip \
+		-p $ss_server_port \
+		-l $ss_local_port \
+		-f /var/run/shadowsocks.pid &
+	$MYDIR/ss-rules -s $ss_server_ip -l $ss_local_port $CHNROUTE
 
-	echo "VPN started"
+	echo "VPN started on port $ss_local_port"
 	exit 0
 fi
 

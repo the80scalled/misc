@@ -10,10 +10,12 @@ There's no stock firmware out there with support for shadowsocks, so you have to
 -	A Chinese-made custom build with shadowsocks and everything already built in. The problem is that they're in Chinese and if something breaks, you'll have to spend time fixing it, which may or may not be possible.
 -	OpenWRT. Most of the shadowsocks articles focus around this option. The problem is that OpenWRT is [basically broken](https://dev.openwrt.org/ticket/10852#comment:49) on the RT-N66U, and there are no plans to fix it.
 -	Tomato. Here there are a few options, such as Advanced Tomato and TomatoUSB. I tried both and found that the former couldn't keep an internet connection up for more than a few hours, and found the latter to be riddled with bugs.
--	DD-WRT. I didn't try this because the router's page didn't exactly fill me with hope. It seems to have better support than OpenWRT, but worse than Tomato.
+-	DD-WRT. I didn't try this because the RT-N66U's page on the DD-WRT wiki didn't exactly fill me with hope. For this particular router, it seems to have better support than OpenWRT, but worse than Tomato.
 -	AsusWRT-Merlin. This is basically the stock firmware with a few features and bug fixes added on. I ruled this out early on because dual WAN seemingly didn't support load balancing with failover...except that it does, and it's far more stable than Tomato Shibby's implementation.
 
 The one drawback with AsusWRT-Merlin is that virtual SSIDs aren't configurable under the GUI, but I'll take scriptable and stable over user-friendly and unstable.
+
+If I were going to do this again, I'd search Chinese forums for routers that support OpenWRT.
 
 ### Getting started with AsusWRT-Merlin
 
@@ -28,27 +30,31 @@ First, find the smallest USB thumbdrive you own (a 1GB micro SD card in a tiny U
 3.	`p` to print the partition table. Shouldn't have anything on it. If there is, use the commands to delete it.
 4.	`n` to create a new partition; select `p`, primary partition; `1` for index = 1.
 5.	Select the default start and stop cylinders.
-6.	`p` to see your beautiful work. (it's not saved yet!) The partition name should be `/dev/sdb1`.
+6.	`p` to see your beautiful work. (it's not saved yet!) The partition name should be `/dev/sda1`.
 7.	`w` to write the partition table to disk.
 8.	`q` to exit.
 
-So now there's a partition on the drive, but it's empty. Like, all zeros empty. We need to fix that. It's already mounted (in use), so to make big changes to it you have to unmount it first before creating the filesystem and mounting it:
+So now there's a partition on the drive, but it's empty. Like, all zeros empty. We need to fix that by creating a filesystem on it. We'll be using ext3.
 
 ```bash
 mkfs.ext3 /dev/sda1
-mkdir /mnt/usb
-mount /dev/sda1 /mnt/usb
+mkdir /mnt/sda1
+mount /dev/sda1 /mnt/sda1
 ```
 
 Next, make sure it auto-mounts on startup:
 
 ```bash
-echo "# device mountpoint fstype options dump fsck" >> /jffs/configs/fstab
-echo "/dev/sda1 /mnt/usb ext3 defaults 0 1" >> /jffs/configs/fstab
+tee /jffs/configs/fstab <<-EOF
+# device mountpoint fstype options dump fsck
+/dev/sda1 /mnt/sda1 ext3 defaults 0 1
+EOF
+
 tee /jffs/scripts/init-start <<-EOF
 #!/bin/sh
-mkdir -p /mnt/usb
+mkdir -p /mnt/sda1
 EOF
+
 chmod +x /jffs/scripts/init-start
 ```
 
@@ -82,9 +88,9 @@ iptables -t nat -I PREROUTING -j SHADOWSOCKS
 iptables -t nat -A SHADOWSOCKS -p tcp -j REDIRECT --to-ports $ss_local_port
 ```
 
-The `REDIRECT` target takes incoming traffic and routes it to the local machine. Lots of pages online talk about how this is great for transparent proxying, or proxying traffic from machines on the intranet without them caring that the proxy is happening. This is exactly what we're trying to do, so it's a perfect fit.
+The `REDIRECT` target takes incoming traffic and routes it to the local machine. While this does work for transparent proxying, it's not a perfect fit -- it changes the destination IP in the packet and a call to `getsockopt()` is required at a later time to retrieve the original destination. `TPROXY` would be better, but unfortunately it's not available on AsusWRT-Merlin.
 
-So you set up iptables, run ss-redir with the configuration specifying that it binds to 127.0.0.1 as the local address, and you're good to go.
+So you set up iptables, run ss-redir with the configuration specifying that it binds to 127.0.0.1 as the local address, and you're good to go. Right?
 
 Except it doesn't work. Connecting from a machine on the LAN gives "connection refused". Debugging this with the benefit of hindsight is relatively simple: "connection refused" is the ICMP error returned by the kernel when there's no process listening on the port. So even if there's a small problem with ss-redir's configuration, that wouldn't matter -- it's not even listening on the right port + interface! The problem must be rather basic.
 
@@ -134,13 +140,19 @@ The great firewall appears to intercept and tamper with unencrypted DNS requests
 
 Instead, there are a few options:
 
--	Proxy DNS traffic through shadowsocks. This would be ideal, but unfortunately this requires the TPROXY module, which AsusWRT-Merlin does not have.
--	Use [dnscrypt](https://github.com/jedisct1/dnscrypt-proxy). This works for a while, but is also unreliable.
--	Use dnscrypt with the `--tcp-only` option. This works, but is extremely slow -- so slow, in fact, that Chrome times out before the DNS request returns.
+-	Proxy DNS traffic through shadowsocks. This would be ideal, but unfortunately this requires the `TPROXY` module, which AsusWRT-Merlin does not have.
+-	Use [dnscrypt](https://github.com/jedisct1/dnscrypt-proxy). This works for a while, but is also unreliable, perhaps because the great firewall sometimes blocks its traffic.
+-	Use dnscrypt with the `--tcp-only` option. This works, but is extremely slow -- so slow, in fact, that Chrome often times out before the DNS request returns.
 -	Use ChinaDNS. This seems ideal, except the project is old.
 -	Use redsocks(2) to tunnel DNS traffic through shadowsocks.
 
-ChinaDNS looks like the most promising option.
+ChinaDNS looks like the most promising option. Here's a quote from a [great explanation](http://dinever.com/2015/04/22/Run-Shadowsocks-on-OpenWRT) of how ChinaDNS works:
+
+> The GFW(Great Firewall of China) has multiple methods to block network. One of them is the DNS spoofing, also named DNS Cache Poisoning. The GFW intercepts all UDP traffic on port 53(traffic on UDP port 53 usually means that it is a DNS lookup) and quickly, ahead of the real DNS server, send a fake response to the user when it finds the domain keyword matches the GFW blacklist. By this way the GFW may block foreign websites by faking the results of DNS queries that was made under it, which means that clients can not get the real IP address of the domain name, so of course they can not reach to the real server.
+>
+> To get rid of the DNS sppofing we need ChinaDNS, which creates a UDP DNS Server at a certian local port. ChinaDNS has a built-in IP blacklist. When a DNS query was made by the client to the ChinaDNS server, it looks up from the upstream DNS server. If the result matches an entry from the IP blacklist, ChinaDNS would regard it as a fake IP address and would wait for the result from the real DNS server.
+
+ChinaDNS is quite easy to install:
 
 ```bash
 opkg install chinadns bind-dig
@@ -159,10 +171,13 @@ Note that we've installed the awesome `dig` tool, which shows the full results o
 dig @127.0.0.1 www.nytimes.com -p5354
 ```
 
-Anyway, the chinadns startup configuration isn't quite correct. Do this:
+Anyway, the chinadns startup configuration isn't quite correct. We need to change the port number, add the `-m` option, and specify an alternate DNS server (it's a good idea to use one that's in the same city as your VPN):
 
 ```
-sed -i -r '/^ARGS/cARGS="-l /opt/etc/chinadns_iplist.txt -c /opt/src/github.com/the80scalled/misc/net/cnroute.txt -p 5354 -m"' S56chinadns
+sed -i -r '/^ARGS/cARGS="-l /opt/etc/chinadns_iplist.txt -c /opt/src/github.com/the80scalled/misc/net/cnroute.txt -p 5354 -s 114.114.114.114,61.23.13.11,208.67.222.222:443,8.8.8.8 -m"' \
+    /opt/etc/init.d/S56chinadns
+
+
 /opt/etc/init.d/S56chinadns start
 ```
 
@@ -191,6 +206,7 @@ There are two ways to achieve this:
 #### Other things to do
 
 -	Load-balance across multiple VPN servers
+-	Ad blocking, perhaps from [here](https://gitlab.com/spitfire-project/ublockr/blob/master/README.md) or perhaps from [here](http://jacobsalmela.com/block-millions-ads-network-wide-with-a-raspberry-pi-hole-2-0/)
 
 ### Appendix
 
