@@ -31,8 +31,9 @@ First, find the smallest USB thumbdrive you own (a 1GB micro SD card in a tiny U
 4.	`n` to create a new partition; select `p`, primary partition; `1` for index = 1.
 5.	Select the default start and stop cylinders.
 6.	`p` to see your beautiful work. (it's not saved yet!) The partition name should be `/dev/sda1`.
-7.	`w` to write the partition table to disk.
-8.	`q` to exit.
+7.	`w` to write the partition table to disk and exit.
+
+(if you get a warning saying "rereading partition table failed", then the drive is already mounted and you'll either need to unmount it and perform the steps again, or reboot)
 
 So now there's a partition on the drive, but it's empty. Like, all zeros empty. We need to fix that by creating a filesystem on it. We'll be using ext3.
 
@@ -165,16 +166,10 @@ EOF
 service restart_dnsmasq
 ```
 
-Note that we've installed the awesome `dig` tool, which shows the full results of DNS queries like
+The chinadns startup configuration isn't quite correct. We need to change the port number, add the `-m` option, and specify an alternate DNS server (it's a good idea to use one that's in the same city as your VPN):
 
 ```
-dig @127.0.0.1 www.nytimes.com -p5354
-```
-
-Anyway, the chinadns startup configuration isn't quite correct. We need to change the port number, add the `-m` option, and specify an alternate DNS server (it's a good idea to use one that's in the same city as your VPN):
-
-```
-sed -i -r '/^ARGS/cARGS="-l /opt/etc/chinadns_iplist.txt -c /opt/src/github.com/the80scalled/misc/net/cnroute.txt -p 5354 -s 114.114.114.114,61.23.13.11,208.67.222.222:443,8.8.8.8 -m"' \
+sed -i -r '/^ARGS/cARGS="-l /opt/etc/chinadns_iplist.txt -c /opt/src/github.com/the80scalled/misc/net/cnroute.txt -p 5354 -s 114.114.114.114,61.23.13.11,208.67.222.222:443,8.8.8.8 -m -d"' \
     /opt/etc/init.d/S56chinadns
 
 
@@ -183,7 +178,13 @@ sed -i -r '/^ARGS/cARGS="-l /opt/etc/chinadns_iplist.txt -c /opt/src/github.com/
 
 And it should start.
 
-To test, simply look up some popular domains:
+`-d` enables the bi-directional DNS filter, whatever that means. It seems to have something to do with CDNs that have branches inside China. It may help if you have problems with local Chinese sites that also have foreign versions that resolve to foreign addresses on foreign DNS servers (like www.aliyun.com).
+
+To test, simply look up some popular domains with the awesome `dig` tool:
+
+```
+dig @127.0.0.1 www.nytimes.com -p5354
+```
 
 | Domain          | Default (Poisoned) | Correct        |
 |-----------------|--------------------|----------------|
@@ -212,4 +213,4 @@ There are two ways to achieve this:
 
 ##### TomatoUSB and iptables: a tale of woe
 
-And after about a dozen hours of experimentation, I discovered that TomatoUSB's latest build for RT-N66U (August 2016 or so) is riddled with bugs -- including a bug that, under dual WAN, generates improperly formatted iptables configuration every time anything in the network changes. I worked around this by writing a script that ran every few seconds and looked for /etc/iptables.error and, if it was found, fix it with a few `sed` lines and apply it. What a joke.
+And after about a dozen hours of experimentation, I discovered that TomatoUSB's latest build for RT-N66U (August 2016 or so) is riddled with bugs -- including a bug that, under dual WAN, generates improperly formatted iptables configuration every time anything in the network changes. I worked around this by writing a script that ran every few seconds and looked for /etc/iptables.error and, if it was found, fix it with a few `sed` lines and apply it. This kind of worked, but eventually I realized that this was completely ridiculous and switched to AsusWRT-Merlin.
