@@ -36,9 +36,8 @@ if [[ "$verb" == "start" ]]; then
 		-s $ss_server_ip \
 		-p $ss_server_port \
 		-l $ss_local_port \
-		-b $bypass_ips \
 		-f /var/run/shadowsocks.pid &
-	$MYDIR/ss-rules -s $ss_server_ip -l $ss_local_port -b $bypass_ips -i $CHNROUTE
+	$MYDIR/ss-rules -s $ss_server_ip -l $ss_local_port -b $bypass_ips $CHNROUTE
 
 	echo "VPN started on port $ss_local_port"
 	exit 0
