@@ -169,7 +169,7 @@ service restart_dnsmasq
 The chinadns startup configuration isn't quite correct. We need to change the port number, add the `-m` option, and specify an alternate DNS server (it's a good idea to use one that's in the same city as your VPN):
 
 ```
-sed -i -r '/^ARGS/cARGS="-l /opt/etc/chinadns_iplist.txt -c /opt/src/github.com/the80scalled/misc/net/cnroute.txt -p 5354 -s 114.114.114.114,61.23.13.11,208.67.222.222:443,8.8.8.8 -m -d"' \
+sed -i -r '/^ARGS/cARGS="-l /opt/etc/chinadns_iplist.txt -c /opt/src/github.com/the80scalled/misc/net/chnroute.txt -p 5354 -s 114.114.114.114,61.23.13.11,208.67.222.222:443,8.8.8.8 -m -d"' \
     /opt/etc/init.d/S56chinadns
 
 

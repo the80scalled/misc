@@ -4,9 +4,12 @@
 MYDIR=`dirname $0`
 
 ss_local_port=12345
-#ss_server_ip=52.197.156.235
-ss_server_ip=52.193.77.21
+#ss_server_ip=52.193.77.21
+ss_server_ip=52.198.198.63
+#ss_server_ip=45.76.194.83
 ss_server_port=17989
+
+bypass_ips=192.30.253.112/31
 
 verb=$1
 
@@ -33,6 +36,7 @@ if [[ "$verb" == "start" ]]; then
 		-s $ss_server_ip \
 		-p $ss_server_port \
 		-l $ss_local_port \
+		-b $bypass_ips \
 		-f /var/run/shadowsocks.pid &
 	$MYDIR/ss-rules -s $ss_server_ip -l $ss_local_port $CHNROUTE
 
